@@ -1,0 +1,37 @@
+{
+    "textboxes": {
+        "content": {
+            "title": "Story Template",
+            "titleStyle": {
+                "fontSize": 58,
+                "color": "#ffffff"
+            },
+            "items": [
+                {
+                    "type": "text",
+                    "text": "Share your story with this Instagram-optimized vertical layout."
+                },
+                {
+                    "type": "bullet",
+                    "text": "1080x1920 resolution"
+                },
+                {
+                    "type": "bullet",
+                    "text": "Safe zone margins"
+                },
+                {
+                    "type": "bullet",
+                    "text": "Mobile-first design"
+                }
+            ]
+        },
+        "footer": {
+            "items": [
+                {
+                    "type": "text",
+                    "text": "Swipe up for more •"
+                }
+            ]
+        }
+    }
+}

@@ -1,0 +1,43 @@
+{
+    "canvas": {
+        "preset": "1080p"
+    },
+    "background": {
+        "type": "color",
+        "color": "#1a1a2e"
+    },
+    "margin": {
+        "top": 80,
+        "right": 100,
+        "bottom": 80,
+        "left": 100
+    },
+    "textboxes": [
+        {
+            "id": "left_column",
+            "x": 0,
+            "y": 0,
+            "width": 0.48,
+            "height": 1.0,
+            "padding": 20,
+            "style": {
+                "fontSize": 28,
+                "color": "#ffffff",
+                "lineHeight": 1.6
+            }
+        },
+        {
+            "id": "right_column",
+            "x": 0.52,
+            "y": 0,
+            "width": 0.48,
+            "height": 1.0,
+            "padding": 20,
+            "style": {
+                "fontSize": 28,
+                "color": "#e0e0e0",
+                "lineHeight": 1.6
+            }
+        }
+    ]
+}

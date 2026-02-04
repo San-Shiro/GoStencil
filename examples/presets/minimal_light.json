@@ -1,0 +1,30 @@
+{
+    "canvas": {
+        "preset": "1080p"
+    },
+    "background": {
+        "type": "color",
+        "color": "#f5f5f5"
+    },
+    "margin": {
+        "top": 150,
+        "right": 180,
+        "bottom": 150,
+        "left": 180
+    },
+    "textboxes": [
+        {
+            "id": "centered",
+            "x": 0.0,
+            "y": 0.2,
+            "width": 1.0,
+            "height": 0.6,
+            "padding": 60,
+            "style": {
+                "fontSize": 40,
+                "color": "#333333",
+                "lineHeight": 1.8
+            }
+        }
+    ]
+}

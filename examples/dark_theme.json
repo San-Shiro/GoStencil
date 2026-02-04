@@ -1,0 +1,30 @@
+{
+    "canvas": {
+        "preset": "1080p"
+    },
+    "background": {
+        "type": "color",
+        "color": "#000000"
+    },
+    "margin": {
+        "top": 100,
+        "right": 100,
+        "bottom": 100,
+        "left": 100
+    },
+    "textboxes": [
+        {
+            "id": "hero",
+            "x": 0.1,
+            "y": 0.2,
+            "width": 0.8,
+            "height": 0.6,
+            "padding": 50,
+            "style": {
+                "fontSize": 48,
+                "color": "#00ff00",
+                "lineHeight": 1.5
+            }
+        }
+    ]
+}

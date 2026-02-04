@@ -1,0 +1,21 @@
+{
+    "textboxes": {
+        "centered": {
+            "title": "Minimal Design",
+            "titleStyle": {
+                "fontSize": 56,
+                "color": "#1a1a1a"
+            },
+            "items": [
+                {
+                    "type": "text",
+                    "text": "Sometimes less is more. This minimal light theme demonstrates clean typography on a neutral background."
+                },
+                {
+                    "type": "text",
+                    "text": "Perfect for professional presentations, documentation previews, or any content requiring a subtle, distraction-free aesthetic."
+                }
+            ]
+        }
+    }
+}
