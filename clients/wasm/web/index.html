@@ -233,7 +233,7 @@
     <script>
         // Bootstrap WASM
         const go = new Go();
-        WebAssembly.instantiateStreaming(fetch('gostencil.wasm'), go.importObject)
+        WebAssembly.instantiateStreaming(fetch('gostencil.wasm?v=' + Date.now()), go.importObject)
             .then(result => {
                 go.run(result.instance);
                 function checkReady() {

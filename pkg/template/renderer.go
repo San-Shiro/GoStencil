@@ -6,6 +6,7 @@
 package template
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"image/color"
@@ -21,10 +22,20 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
+// AssetResolverFunc returns the raw bytes for an asset ID, or nil if not found.
+type AssetResolverFunc func(id string) []byte
+
 // Renderer composites images from presets or legacy templates.
 type Renderer struct {
-	fontManager *FontManager
-	dpi         float64
+	fontManager   *FontManager
+	dpi           float64
+	assetResolver AssetResolverFunc
+}
+
+// SetAssetResolver sets a callback to resolve asset IDs to in-memory bytes.
+// This is used by the WASM client where assets live in memory, not on disk.
+func (r *Renderer) SetAssetResolver(fn AssetResolverFunc) {
+	r.assetResolver = fn
 }
 
 // NewRenderer creates a renderer with the specified font (empty = embedded default).
@@ -70,7 +81,7 @@ func (r *Renderer) RenderPreset(preset *Preset, components []ResolvedComponent) 
 // drawPresetBackground fills with an image or solid color.
 func (r *Renderer) drawPresetBackground(img *image.RGBA, preset *Preset) error {
 	if preset.Background.Type == "image" && preset.Background.Source != "" {
-		if bgImg, err := loadImage(preset.Background.Source); err == nil {
+		if bgImg, err := r.resolveImage(preset.Background.Source); err == nil {
 			drawScaled(img, bgImg)
 			return nil
 		}
@@ -99,7 +110,7 @@ func (r *Renderer) drawComponent(img *image.RGBA, comp ResolvedComponent) error 
 
 	// 2. Background image (sticker/logo).
 	if comp.Style.BackgroundImage != "" {
-		if bgImg, err := loadImage(comp.Style.BackgroundImage); err == nil {
+		if bgImg, err := r.resolveImage(comp.Style.BackgroundImage); err == nil {
 			subImg := img.SubImage(bounds).(*image.RGBA)
 			fit := comp.Style.BackgroundFit
 			if fit == "" {
@@ -399,6 +410,26 @@ func drawCover(dst *image.RGBA, src image.Image) {
 			blendPixel(dst, x, y, px)
 		}
 	}
+}
+
+// resolveImage tries the asset resolver first (for WASM), then falls back to filesystem.
+func (r *Renderer) resolveImage(path string) (image.Image, error) {
+	// Try in-memory asset resolver first.
+	if r.assetResolver != nil {
+		if data := r.assetResolver(path); data != nil {
+			fmt.Printf("[resolveImage] Found asset %q (%d bytes), decoding...\n", path, len(data))
+			img, format, err := image.Decode(bytes.NewReader(data))
+			if err != nil {
+				fmt.Printf("[resolveImage] Decode error for %q: %v\n", path, err)
+				return nil, err
+			}
+			fmt.Printf("[resolveImage] Decoded %q as %s (%dx%d)\n", path, format, img.Bounds().Dx(), img.Bounds().Dy())
+			return img, nil
+		}
+		fmt.Printf("[resolveImage] Asset %q NOT found in resolver\n", path)
+	}
+	// Fall back to filesystem.
+	return loadImage(path)
 }
 
 // loadImage reads and decodes an image file (PNG or JPEG).

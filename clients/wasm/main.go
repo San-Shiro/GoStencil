@@ -113,18 +113,11 @@ func renderImage(this js.Value, args []js.Value) interface{} {
 		preset.Background.Color = "#1a1a2e"
 	}
 
-	// Resolve assets: write to temp memory map for the renderer.
-	// The renderer loads images by file path, but in WASM we need to
-	// write asset bytes to a virtual path. We use the template package's
-	// ability to load from byte data by writing to the asset resolver.
+	// Resolve assets: background images and component images are
+	// loaded via the asset resolver, not from the filesystem.
 	fontData := resolveAsset(preset.Font.Path)
-	bgData := resolveAsset(preset.Background.Source)
 
-	// For backgroundImage and fontPath in components, we need to write
-	// the asset data to temp paths. In WASM, we'll use the Go os package
-	// which maps to in-memory filesystem.
 	for i := range preset.Components {
-		resolveComponentAssets(&preset.Components[i])
 		applyDefaults(&preset.Components[i])
 	}
 
@@ -152,10 +145,8 @@ func renderImage(this js.Value, args []js.Value) interface{} {
 		return js.ValueOf("error: renderer: " + err.Error())
 	}
 
-	// Resolve background image from bytes.
-	if bgData != nil {
-		preset.Background.Source = "" // clear path, we'll handle it differently
-	}
+	// Set asset resolver so the renderer can load images from WASM memory.
+	renderer.SetAssetResolver(resolveAsset)
 
 	img, err := renderer.RenderPreset(&preset, components)
 	if err != nil {
@@ -207,24 +198,6 @@ func exportAVI(this js.Value, args []js.Value) interface{} {
 	}
 
 	return js.ValueOf(base64.StdEncoding.EncodeToString(aviBuf.Bytes()))
-}
-
-func resolveComponentAssets(c *template.Component) {
-	// For background images, write asset data to a temp file path
-	// that the renderer can load.
-	if data := resolveAsset(c.Style.BackgroundImage); data != nil {
-		// Store in a temporary in-memory location.
-		// The renderer will need to be able to load this.
-		tmpID := "_wasm_bg_" + c.ID
-		assetsMu.Lock()
-		assets[tmpID] = assetEntry{Data: data, Mime: "image/png"}
-		assetsMu.Unlock()
-		// We'll need the renderer to support loading from our asset map.
-		// For now, keep the original ID — we'll patch the renderer.
-	}
-	if data := resolveAsset(c.Style.FontPath); data != nil {
-		_ = data // font loading handled separately
-	}
 }
 
 func applyDefaults(c *template.Component) {
