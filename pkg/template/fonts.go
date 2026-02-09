@@ -1,6 +1,4 @@
-// fonts.go - Font management with custom TTF support and embedded fallback font.
-// Uses golang.org/x/image/font for OpenType rendering. Defaults to Go Regular
-// font when no custom font is specified or when custom font loading fails.
+// fonts.go — Font loading with embedded Go Regular fallback.
 package template
 
 import (
@@ -12,48 +10,50 @@ import (
 	"golang.org/x/image/font/opentype"
 )
 
-// FontManager handles font loading with fallback.
+// FontManager loads and caches a parsed OpenType font.
 type FontManager struct {
-	fontData []byte
-	parsed   *opentype.Font
+	parsed *opentype.Font
 }
 
-// NewFontManager creates a font manager with the specified font.
-// If customPath is empty or invalid, uses embedded Go font.
+// NewFontManager creates a font manager. If customPath is empty or unreadable,
+// the embedded Go Regular font is used as fallback.
 func NewFontManager(customPath string) (*FontManager, error) {
-	var fontData []byte
-	var err error
+	data := goregular.TTF // default
 
-	// Try custom font first
 	if customPath != "" {
-		fontData, err = os.ReadFile(customPath)
-		if err != nil {
-			fmt.Printf("Warning: could not load custom font '%s', using default\n", customPath)
-			fontData = nil
+		if custom, err := os.ReadFile(customPath); err != nil {
+			fmt.Printf("Warning: font %q unavailable, using default: %v\n", customPath, err)
+		} else {
+			data = custom
 		}
 	}
 
-	// Fallback to embedded Go font
-	if fontData == nil {
-		fontData = goregular.TTF
-	}
-
-	parsed, err := opentype.Parse(fontData)
+	parsed, err := opentype.Parse(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse font: %w", err)
+		return nil, fmt.Errorf("parse font: %w", err)
 	}
 
-	return &FontManager{
-		fontData: fontData,
-		parsed:   parsed,
-	}, nil
+	return &FontManager{parsed: parsed}, nil
 }
 
-// GetFace returns a font.Face at the specified size.
-func (fm *FontManager) GetFace(size float64, dpi float64) (font.Face, error) {
-	if dpi <= 0 {
-		dpi = 72
+// NewFontManagerFromBytes creates a font manager from raw TTF data.
+// If data is nil or empty, the embedded Go Regular font is used.
+func NewFontManagerFromBytes(data []byte) (*FontManager, error) {
+	if len(data) == 0 {
+		data = goregular.TTF
 	}
+
+	parsed, err := opentype.Parse(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse font: %w", err)
+	}
+
+	return &FontManager{parsed: parsed}, nil
+}
+
+// GetFace returns a font.Face at the given size. DPI defaults to 72 if ≤ 0.
+func (fm *FontManager) GetFace(size, dpi float64) (font.Face, error) {
+	dpi = max(dpi, 72)
 
 	face, err := opentype.NewFace(fm.parsed, &opentype.FaceOptions{
 		Size:    size,
@@ -61,8 +61,7 @@ func (fm *FontManager) GetFace(size float64, dpi float64) (font.Face, error) {
 		Hinting: font.HintingFull,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create font face: %w", err)
+		return nil, fmt.Errorf("create font face at %.1fpt: %w", size, err)
 	}
-
 	return face, nil
 }

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoStencil — WASM Editor</title>
+    <meta name="description" content="Client-side preset editor for GoStencil (WebAssembly)">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* WASM loading overlay */
+        .wasm-loading {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: var(--bg-deepest);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .wasm-loading p {
+            color: var(--text-secondary);
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .wasm-loading .sub {
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        .wasm-badge {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: rgba(63, 185, 80, 0.15);
+            color: var(--accent-3);
+            margin-left: 6px;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- WASM loading overlay -->
+    <div id="wasm-loading" class="wasm-loading">
+        <div class="spinner"></div>
+        <p>Loading GoStencil WASM...</p>
+        <p class="sub">First load downloads ~5 MB, then cached by your browser.</p>
+    </div>
+
+    <!-- Toolbar -->
+    <header id="toolbar">
+        <div class="toolbar-left">
+            <div class="logo">
+                <span class="logo-icon">&diams;</span>
+                <span class="logo-text">GoStencil</span>
+                <span class="wasm-badge">WASM</span>
+            </div>
+        </div>
+        <div class="toolbar-center">
+            <button id="btn-import" class="toolbar-btn" title="Import .gspresets">&uarr; Import</button>
+            <div class="toolbar-divider"></div>
+            <button id="btn-upload-font" class="toolbar-btn" title="Upload custom font (.ttf)">Aa Font</button>
+            <button id="btn-upload-image" class="toolbar-btn" title="Upload image (PNG/JPG)">+ Image</button>
+            <div class="toolbar-divider"></div>
+            <button id="btn-assets" class="toolbar-btn" title="Manage uploaded assets">Assets <span id="asset-count"
+                    class="asset-count">0</span></button>
+            <button id="btn-help" class="toolbar-btn" title="Help">? Help</button>
+        </div>
+        <div class="toolbar-right">
+            <div class="export-group">
+                <button id="btn-export" class="toolbar-btn toolbar-btn--primary">&darr; Export</button>
+                <div id="export-menu" class="dropdown-menu">
+                    <button data-export="png" class="dropdown-item">Export PNG</button>
+                    <button data-export="avi" class="dropdown-item">Export AVI Video</button>
+                    <div class="dropdown-divider"></div>
+                    <button data-export="preset-json" class="dropdown-item">Export preset.json</button>
+                    <button data-export="data-json" class="dropdown-item">Export data.json</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Layout -->
+    <main id="app">
+        <section id="panel-preset" class="panel">
+            <div class="panel-header">
+                <h2>preset.json</h2>
+                <span class="panel-badge">Template</span>
+            </div>
+            <div class="editor-wrap">
+                <textarea id="editor-preset" spellcheck="false"></textarea>
+            </div>
+        </section>
+
+        <div class="resize-handle" data-resize="left"></div>
+
+        <section id="panel-data" class="panel">
+            <div class="panel-header">
+                <h2>data.json</h2>
+                <span class="panel-badge">Overrides</span>
+            </div>
+            <div class="editor-wrap">
+                <textarea id="editor-data" spellcheck="false"></textarea>
+            </div>
+        </section>
+
+        <div class="resize-handle" data-resize="right"></div>
+
+        <section id="panel-preview" class="panel">
+            <div class="panel-header">
+                <h2>Preview</h2>
+                <div class="preview-controls">
+                    <button id="btn-zoom-fit" class="icon-btn active" title="Fit to panel">Fit</button>
+                    <button id="btn-zoom-100" class="icon-btn" title="100%">1:1</button>
+                    <span id="zoom-label" class="zoom-label">Fit</span>
+                </div>
+            </div>
+            <div id="preview-container">
+                <div id="preview-checkerboard">
+                    <img id="preview-img" alt="Preview" />
+                    <div id="preview-loading" class="loading-overlay">
+                        <div class="spinner"></div>
+                    </div>
+                    <div id="preview-error" class="error-overlay"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Asset Manager Sidebar -->
+    <div id="asset-panel" class="asset-panel">
+        <div class="asset-panel-header">
+            <h3>Assets</h3>
+            <button id="btn-close-assets" class="icon-btn">X</button>
+        </div>
+        <div id="asset-list" class="asset-list">
+            <div class="asset-empty">No assets uploaded yet</div>
+        </div>
+    </div>
+    <div id="asset-backdrop" class="asset-backdrop"></div>
+
+    <!-- AVI Export Modal -->
+    <div id="modal-avi" class="modal-overlay" style="display:none">
+        <div class="modal">
+            <h3>Export AVI Video</h3>
+            <label>Duration (seconds)
+                <input type="number" id="avi-duration" value="3" min="1" max="60">
+            </label>
+            <div class="modal-actions">
+                <button id="avi-cancel" class="btn-secondary">Cancel</button>
+                <button id="avi-export" class="btn-primary">Export</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="modal-help" class="modal-overlay" style="display:none">
+        <div class="modal modal--wide">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <h3 style="margin:0">GoStencil WASM — Help</h3>
+                <button id="help-close" class="icon-btn">X</button>
+            </div>
+            <div class="help-content">
+                <div class="help-section">
+                    <h4>100% Client-Side</h4>
+                    <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">
+                        All rendering happens in your browser via WebAssembly. No server needed.<br>
+                        Assets are stored in browser memory for the current session.
+                    </p>
+                </div>
+                <div class="help-section">
+                    <h4>Component Position and Size</h4>
+                    <pre><code>{
+  "id": "my_box",
+  "x": 0.1,        // 10% from left (0.0 - 1.0)
+  "y": 0.2,        // 20% from top
+  "width": 0.5,    // 50% of canvas width
+  "height": 0.3,   // 30% of canvas height
+  "zIndex": 1,     // render order (higher = on top)
+  "padding": 20    // inner padding in pixels
+}</code></pre>
+                </div>
+                <div class="help-section">
+                    <h4>Component Style</h4>
+                    <pre><code>"style": {
+  "backgroundColor": "#1e293bcc",
+  "backgroundImage": "ASSET_ID",
+  "backgroundFit": "contain",
+  "borderColor": "#3b82f6",
+  "borderWidth": 2,
+  "cornerRadius": 12,
+  "fontPath": "FONT_ASSET_ID",
+  "fontSize": 32,
+  "color": "#ffffff",
+  "lineHeight": 1.5,
+  "textAlign": "center"
+}</code></pre>
+                </div>
+                <div class="help-section">
+                    <h4>Canvas Presets</h4>
+                    <pre><code>"canvas": { "preset": "1080p" }
+// Available: "720p", "1080p", "4k",
+// "instagram_square", "instagram_story",
+// "youtube_thumb"
+// Or custom: { "width": 800, "height": 600 }</code></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toasts"></div>
+
+    <!-- Hidden file inputs -->
+    <input type="file" id="file-import" accept=".gspresets,.zip" hidden>
+    <input type="file" id="file-font" accept=".ttf,.otf,.woff,.woff2" hidden>
+    <input type="file" id="file-image" accept=".png,.jpg,.jpeg,.webp" hidden>
+
+    <script src="wasm_exec.js"></script>
+    <script>
+        // Bootstrap WASM
+        const go = new Go();
+        WebAssembly.instantiateStreaming(fetch('gostencil.wasm'), go.importObject)
+            .then(result => {
+                go.run(result.instance);
+                function checkReady() {
+                    if (window.goReady) {
+                        document.getElementById('wasm-loading').style.display = 'none';
+                        console.log('GoStencil WASM ready');
+                    } else {
+                        setTimeout(checkReady, 50);
+                    }
+                }
+                checkReady();
+            })
+            .catch(err => {
+                var el = document.querySelector('.wasm-loading p');
+                el.textContent = 'Failed to load WASM: ' + err.message;
+                el.style.color = '#f85149';
+            });
+    </script>
+    <script src="app.js"></script>
+</body>
+
+</html>

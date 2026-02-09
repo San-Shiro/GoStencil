@@ -1,195 +1,193 @@
-# GoStencil: Programmable Media Generation
+# GoStencil
 
-**GoStencil** is a zero-dependency Go library for generating programmable media assets. It features a **JSON-driven template engine** to automate complex layouts and styling, paired with a **native AVI encoder** to generate widely compatible video files purely in Go—no external binaries required.
+Programmable media generation in pure Go. JSON-driven templates, native AVI encoding, built-in web editor.
 
----
-
-## 🚀 Features
-
-- **Pure Go Implementation**: No external dependencies (like FFmpeg or ImageMagick) required.
-- **Native AVI Generation**: Creates widely compatible AVI files using a built-in MJPEG encoder.
-- **JSON Template Engine**:
-  - **Layouts**: Define regions, margins, presets, and base styles.
-  - **Content**: Populate text, lists, and headers dynamically.
-  - **Auto-Formatting**: Automatic text wrapping, bullet points, and numbered lists.
-  - **Styling**: Support for custom fonts (TTF), colors, and per-item style overrides.
-- **Zero Configuration**: Comes with an embedded font (Go Regular) for immediate use.
+**No CGo. No FFmpeg. No external dependencies.**
 
 ---
 
-## 📦 Installation
+## Quick Links
 
-```powershell
-# Clone and build
-git clone https://github.com/xob0t/GoStencil
-cd GoStencil
-go build -o gostencil.exe ./cmd/media
+| | |
+|---|---|
+| [Documentation](docs/DOCUMENTATION.md) | Full usage guide, web editor reference, CLI options |
+| [Codebase Guide](docs/CODEBASE.md) | Architecture, package deep-dive, algorithms |
+
+---
+
+## Features
+
+- **Preset System** — JSON-defined templates with components, styling, and canvas presets
+- **Pure Go Rendering** — Text layout, background images, rounded corners, border, alpha blending
+- **Native AVI Encoding** — MJPEG video output, no external tools
+- **Web Editor** — Three-panel UI with live preview, asset manager, import/export
+- **WASM Client** — 100% client-side rendering via WebAssembly (no server needed)
+- **Go Library** — Import `pkg/generator` and `pkg/template` directly in your Go apps
+- **Zero Dependencies** — Only stdlib + `golang.org/x/image` for font rendering
+
+---
+
+## Project Structure
+
+```
+GoStencil/
+├── cmd/gostencil/main.go          # CLI entry point
+├── pkg/
+│   ├── generator/                 # PNG/AVI generation (importable)
+│   └── template/                  # Preset rendering engine (importable)
+├── clients/
+│   ├── server/                    # HTTP server + embedded web UI
+│   │   ├── server.go              # Exported RunServe()
+│   │   └── web/                   # Frontend assets
+│   └── wasm/                      # WebAssembly client
+│       ├── main.go                # WASM entry point (syscall/js)
+│       └── web/                   # Deployable static frontend
+├── scripts/build_wasm.bat         # WASM build script
+├── presets/                       # Example .gspresets bundles
+└── docs/                          # Documentation
 ```
 
 ---
 
-## 🛠️ Quick Start
+## Quick Start
 
-### 1. Initialize a Project
-Create sample layout and content files to get started quickly.
-```powershell
-.\gostencil.exe init
-```
-This creates `layout.json` and `content.json` in your current directory.
+### Build & Run
 
-### 2. Generate from Template
-```powershell
-# Generate a static PNG image
-.\gostencil.exe template --layout layout.json --content content.json -o output.png
-
-# Generate a 5-second AVI video (Pure Go)
-.\gostencil.exe template --layout layout.json --content content.json -o output.avi --duration 5
-```
-
-### 3. Simple Image/Video Generation
-Generate simple solid-color media without templates:
-```powershell
-# Generate a random color background video
-.\gostencil.exe generate --type avi -o background.avi --duration 10
-
-# Generate a specific color image
-.\gostencil.exe generate --type png -o red.png --color "#ff0000" --width 1920 --height 1080
-```
-
----
-
-## 🎨 Layout Presets & Examples
-
-The project includes a collection of professional presets in the `examples/` folder.
-
-### included Presets (`examples/presets/`)
-- **`cyberpunk.json`**: Dark purple (#0d0221) with cyan neon text.
-- **`forest_green.json`**: Three-column layout with sidebar in nature tones.
-- **`gradient_sunset.json`**: Warm orange (#ff6b35) modern design.
-- **`minimal_light.json`**: Clean, professional light gray (#f5f5f5) theme.
-- **`ocean_blue.json`**: Deep blue (#023e8a) with centered hero text.
-
-### Example Usage
-```powershell
-# Use the cyberpunk preset
-.\gostencil.exe template --layout examples/presets/cyberpunk.json --content examples/content_templates/welcome.json -o my_cyberpunk_video.avi
-```
-
-### Platform Presets
-The `canvas.preset` field in your layout JSON automatically sets the resolution:
-- `1080p`: 1920x1080
-- `720p`: 1280x720
-- `instagram_square`: 1080x1080
-- `instagram_story`: 1080x1920
-- `youtube_thumb`: 1280x720
-
----
-
-## 📚 Library Usage
-
-You can import `GoStencil` packages directly into your own Go applications used as a library.
-
-### Installation
 ```bash
-go get github.com/xob0t/GoStencil
+# Build CLI
+go build -o gostencil ./cmd/gostencil
+
+# Start web editor
+gostencil serve --port 8080
+
+# Generate from preset
+gostencil -o output.png --preset theme.gspresets --data data.json
+
+# Initialize sample files
+gostencil init
 ```
 
-### 1. Generating a Simple Video (AVI)
-```go
-package main
+### Use as a Go Library
 
-import (
-    "log"
-    "github.com/xob0t/GoStencil/pkg/generator"
-)
+Since packages live in `pkg/`, you can import them directly:
 
-func main() {
-    // Create new AVI generator
-    gen := generator.NewAVIGenerator()
-    
-    config := generator.Config{
-        Width:    1920,
-        Height:   1080,
-        Duration: 5,         // seconds
-        Color:    "#00ff00", // Green screen hex
-    }
-
-    if err := gen.Generate("output.avi", config); err != nil {
-        log.Fatal(err)
-    }
-}
+```bash
+go get github.com/xob0t/GoStencil@latest
 ```
 
-### 2. Rendering a Template
 ```go
-package main
-
 import (
-    "log"
     "github.com/xob0t/GoStencil/pkg/generator"
     "github.com/xob0t/GoStencil/pkg/template"
 )
 
-func main() {
-    // 1. Parse Layout and Content
-    layout, err := template.ParseLayout("layout.json")
-    if err != nil { panic(err) }
-    
-    content, err := template.ParseContent("content.json")
-    if err != nil { panic(err) }
+// Generate a solid-color AVI
+cfg := generator.Config{Width: 1920, Height: 1080, Duration: 5, Color: "#ff6600"}
+generator.Generate("output.avi", cfg)
 
-    // 2. Render to Image
-    renderer, err := template.NewRenderer(layout.Font.Path)
-    if err != nil { panic(err) }
-    
-    img, err := renderer.Render(layout, content)
-    if err != nil { panic(err) }
-
-    // 3. Save as AVI Video
-    gen := generator.NewAVIGenerator()
-    config := generator.Config{
-        SourceImage: img,
-        Duration:    10, // 10 seconds duration
-    }
-    
-    if err := gen.Generate("render.avi", config); err != nil {
-        log.Fatal(err)
-    }
-}
+// Render a preset
+preset, cleanup, _ := template.LoadPreset("theme.gspresets")
+defer cleanup()
+data, _, _ := template.LoadData("data.json")
+components := template.MergeData(preset, data)
+renderer, _ := template.NewRenderer("")
+img, _ := renderer.RenderPreset(preset, components)
+template.SavePNG(img, "output.png")
 ```
 
 ---
 
-## 📄 Schema Reference
+## WASM Client (Client-Side Only)
 
-### Layout JSON (`layout.json`)
-| Field | Description |
-|-------|-------------|
-| `canvas` | Defines `width`, `height`, or `preset`. |
-| `background`| `type` ("color"/"image"), `color` (hex), `source` (file path). |
-| `margin` | `top`, `bottom`, `left`, `right` padding for the safe area. |
-| `font` | `path` to a `.ttf` file. Falls back to embedded font if empty. |
-| `textboxes` | Array of regions. Coordinates `x`, `y`, `width`, `height` are 0.0 to 1.0. |
+The WASM client runs GoStencil entirely in the browser — no server, no backend. After the initial ~5 MB download, everything is cached and works offline.
 
-### Content JSON (`content.json`)
-| Field | Description |
-|-------|-------------|
-| `textboxes` | Map of ID to content. |
-| `title` | Optional header text for the region. |
-| `items` | Array of objects with `type` ("text", "bullet", "numbered") and `text`. |
+### Build WASM
+
+```bash
+# Windows
+scripts\build_wasm.bat
+
+# Linux/macOS
+GOOS=js GOARCH=wasm go build -o clients/wasm/web/gostencil.wasm ./clients/wasm/
+cp "$(go env GOROOT)/misc/wasm/wasm_exec.js" clients/wasm/web/
+```
+
+### Deploy
+
+The `clients/wasm/web/` folder is fully self-contained. Deploy it to:
+- **GitHub Pages** — push the folder, enable Pages in repo settings
+- **Any static host** — Netlify, Cloudflare Pages, S3, etc.
+- **Local** — `python -m http.server 8080` in the `web/` folder
+
+### How It Works
+
+```
+Browser                          WASM (Go)
+┌──────────┐    JSON strings    ┌──────────────┐
+│  app.js  │ ──────────────────▶│  main.go     │
+│  (UI)    │◀────────────────── │  (renderer)  │
+│          │    base64 PNG/AVI  │              │
+└──────────┘                    └──────────────┘
+
+No HTTP. No server. Just function calls via syscall/js.
+```
 
 ---
 
-## ⌨️ Full CLI Options
+## Distribution
 
-### `template`
-- `--layout <path>`: Layout specification (required).
-- `--content <path>`: Content data (required).
-- `-o, --output <path>`: Output file (`.png` or `.avi`).
-- `--duration <sec>`: Video length (default: 3).
+### Pre-built Binaries (Recommended)
 
-### `generate` (Simple Mode)
-- `--type <avi|png|bmp>`: Output format (default: avi).
-- `--color <hex>`: Solid background color.
-- `--width/--height`: Manual dimensions (default: 1280x720).
-- `--duration <sec>`: Video length (default: 1).
+Cross-compile for all platforms from any OS:
+
+```bash
+# Windows
+GOOS=windows GOARCH=amd64 go build -o gostencil-windows-amd64.exe ./cmd/gostencil
+
+# macOS (Apple Silicon)
+GOOS=darwin GOARCH=arm64 go build -o gostencil-darwin-arm64 ./cmd/gostencil
+
+# Linux
+GOOS=linux GOARCH=amd64 go build -o gostencil-linux-amd64 ./cmd/gostencil
+```
+
+Upload to **GitHub Releases** — users download once, run locally. Zero hosting cost.
+
+### Why Not GitHub Pages for the Server?
+
+GoStencil's server mode needs a Go backend for rendering. The **WASM client** solves this — it runs the same Go renderer in the browser via WebAssembly, making it deployable on any static host including GitHub Pages.
+
+---
+
+## Web Editor Workflow
+
+```
+┌────────────────┐    ┌────────────────┐    ┌────────────────┐
+│  preset.json   │    │   data.json    │    │    Preview     │
+│  (template)    │───▶│  (overrides)   │───▶│  (live render) │
+│                │    │                │    │                │
+│  Components,   │    │  Uncomment     │    │  Auto-updates  │
+│  styling,      │    │  keys to       │    │  as you type   │
+│  canvas size   │    │  override      │    │                │
+└────────────────┘    └────────────────┘    └────────────────┘
+
+Toolbar: Import | Font | Image | Assets | Help | Export ▾
+```
+
+---
+
+## CLI Reference
+
+```
+gostencil -o <file> --preset <path> [--data <path>] [--duration N]
+gostencil -o <file> --color <hex> [-w N] [-h N] [--duration N]
+gostencil serve [--port 8080]
+gostencil schema --preset <path>
+gostencil init
+```
+
+---
+
+## License
+
+See [LICENSE](LICENSE).

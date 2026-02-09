@@ -1,6 +1,7 @@
-// avi.go - Pure Go AVI generator using Motion JPEG (MJPEG) video codec.
-// AVI container has better native MJPEG support on Windows than MP4.
-// This generator creates valid AVI files without requiring any external dependencies.
+// avi.go — Pure Go AVI/MJPEG writer.
+//
+// Creates a valid AVI container with a single MJPEG video stream.
+// The input is always an image.Image (the "PNG-first" pipeline).
 package generator
 
 import (
@@ -8,203 +9,192 @@ import (
 	"encoding/binary"
 	"fmt"
 	"image"
-	"image/color"
 	"image/jpeg"
+	"io"
 	"os"
 )
 
-// AVIGenerator generates AVI files with MJPEG video track using pure Go.
-// AVI format has better native Windows support for MJPEG than MP4.
-type AVIGenerator struct{}
-
-// NewAVIGenerator creates a new AVI generator.
-func NewAVIGenerator() *AVIGenerator {
-	return &AVIGenerator{}
+// binaryWriter wraps an io.Writer and accumulates the first error,
+// preventing silently-ignored write failures throughout the AVI assembly.
+type binaryWriter struct {
+	w   io.Writer
+	err error
 }
 
-// Generate creates a valid AVI file containing an MJPEG stream.
-func (g *AVIGenerator) Generate(output string, config Config) error {
-	// 1. Prepare source image
-	var img image.Image
-	if config.SourceImage != nil {
-		img = config.SourceImage
-	} else {
-		// Create solid color image
-		width := config.Width
-		height := config.Height
-		if width <= 0 {
-			width = 1280
-		}
-		if height <= 0 {
-			height = 720
-		}
-		r, gCol, b, err := parseColor(config.Color)
-		if err != nil {
-			return err
-		}
-		rgba := image.NewRGBA(image.Rect(0, 0, width, height))
-		fillColor := color.RGBA{r, gCol, b, 255}
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
-				rgba.Set(x, y, fillColor)
-			}
-		}
-		img = rgba
+func (bw *binaryWriter) fourCC(s string) {
+	if bw.err != nil {
+		return
 	}
+	_, bw.err = bw.w.Write([]byte(s))
+}
 
-	// 2. Encode to JPEG
+func (bw *binaryWriter) u32(v uint32) {
+	if bw.err != nil {
+		return
+	}
+	bw.err = binary.Write(bw.w, binary.LittleEndian, v)
+}
+
+func (bw *binaryWriter) u16(v uint16) {
+	if bw.err != nil {
+		return
+	}
+	bw.err = binary.Write(bw.w, binary.LittleEndian, v)
+}
+
+func (bw *binaryWriter) bytes(data []byte) {
+	if bw.err != nil {
+		return
+	}
+	_, bw.err = bw.w.Write(data)
+}
+
+// writeAVI creates a valid AVI (MJPEG) file from a single image repeated
+// for the given duration at 15 fps.
+func writeAVI(output string, img image.Image, durationSec int) error {
+	f, err := os.Create(output)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", output, err)
+	}
+	defer f.Close()
+
+	if err := writeAVITo(f, img, durationSec); err != nil {
+		return err
+	}
+	return f.Sync()
+}
+
+// writeAVITo writes AVI data to any io.Writer.
+func writeAVITo(w io.Writer, img image.Image, durationSec int) error {
+	// Encode source image to JPEG once.
 	buf := new(bytes.Buffer)
 	if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: 95}); err != nil {
-		return fmt.Errorf("failed to encode JPEG: %w", err)
+		return fmt.Errorf("encode JPEG frame: %w", err)
 	}
 	jpegData := buf.Bytes()
 	jpegSize := uint32(len(jpegData))
 
-	// Pad to even size (AVI requirement)
-	paddedJPEGSize := jpegSize
+	// AVI requires even-aligned chunks.
+	paddedSize := jpegSize
 	if jpegSize%2 != 0 {
-		paddedJPEGSize = jpegSize + 1
+		paddedSize++
 	}
 
-	// 3. Configure Video
-	width := uint32(img.Bounds().Dx())
-	height := uint32(img.Bounds().Dy())
-	fps := uint32(15)
-	microSecPerFrame := uint32(1000000 / fps)
-	durationSec := uint32(config.Duration)
-	if durationSec < 1 {
-		durationSec = 1
-	}
-	totalFrames := durationSec * fps
+	// Video parameters.
+	imgW := uint32(img.Bounds().Dx())
+	imgH := uint32(img.Bounds().Dy())
+	const fps = 15
+	usPerFrame := uint32(1_000_000 / fps)
+	frames := uint32(durationSec) * fps
 
-	// Calculate sizes
-	frameChunkSize := 8 + paddedJPEGSize // "00dc" + size + data
-	moviSize := 4 + (totalFrames * frameChunkSize)
-	idx1Size := 8 + (totalFrames * 16) // idx1 header + entries
-
-	// 4. Create file
-	f, err := os.Create(output)
-	if err != nil {
-		return fmt.Errorf("failed to create output file: %w", err)
-	}
-	defer f.Close()
-
-	// Helper to write FourCC
-	writeFourCC := func(s string) {
-		f.Write([]byte(s))
-	}
-
-	// Helper to write uint32 little-endian
-	writeUint32 := func(v uint32) {
-		binary.Write(f, binary.LittleEndian, v)
-	}
-
-	// Helper to write uint16 little-endian
-	writeUint16 := func(v uint16) {
-		binary.Write(f, binary.LittleEndian, v)
-	}
-
-	// === RIFF Header ===
-	// Total file size = RIFF header (12) + hdrl list + movi list + idx1
-	hdrlSize := uint32(4 + 64 + 124) // LIST + avih + strl
+	// Chunk sizes.
+	frameChunk := 8 + paddedSize          // "00dc" + size + data
+	moviSize := 4 + (frames * frameChunk) // "movi" + frames
+	idx1Size := 8 + (frames * 16)         // "idx1" header + entries
+	hdrlSize := uint32(4 + 64 + 124)      // "hdrl" + avih + strl
 	fileSize := 4 + (8 + hdrlSize) + (8 + moviSize) + idx1Size
 
-	writeFourCC("RIFF")
-	writeUint32(fileSize)
-	writeFourCC("AVI ")
+	bw := &binaryWriter{w: w}
 
-	// === hdrl LIST ===
-	writeFourCC("LIST")
-	writeUint32(hdrlSize)
-	writeFourCC("hdrl")
+	// ── RIFF Header ──
+	bw.fourCC("RIFF")
+	bw.u32(fileSize)
+	bw.fourCC("AVI ")
 
-	// === avih (Main AVI Header) - 56 bytes + 8 header ===
-	writeFourCC("avih")
-	writeUint32(56) // chunk size
-	writeUint32(microSecPerFrame)
-	writeUint32(uint32(float64(jpegSize) * float64(fps))) // max bytes per sec
-	writeUint32(0)                                        // padding granularity
-	writeUint32(0x10)                                     // flags: AVIF_HASINDEX
-	writeUint32(totalFrames)
-	writeUint32(0)        // initial frames
-	writeUint32(1)        // number of streams
-	writeUint32(jpegSize) // suggested buffer size
-	writeUint32(width)    // width
-	writeUint32(height)   // height
-	writeUint32(0)        // reserved
-	writeUint32(0)        // reserved
-	writeUint32(0)        // reserved
-	writeUint32(0)        // reserved
+	// ── hdrl LIST ──
+	bw.fourCC("LIST")
+	bw.u32(hdrlSize)
+	bw.fourCC("hdrl")
 
-	// === strl LIST (Stream List) ===
-	writeFourCC("LIST")
-	writeUint32(116) // strl size: strh(64) + strf(48) + 4
-	writeFourCC("strl")
+	// avih (56 bytes)
+	bw.fourCC("avih")
+	bw.u32(56)
+	bw.u32(usPerFrame)
+	bw.u32(uint32(float64(jpegSize) * fps)) // max bytes/sec
+	bw.u32(0)                               // padding granularity
+	bw.u32(0x10)                            // AVIF_HASINDEX
+	bw.u32(frames)
+	bw.u32(0)        // initial frames
+	bw.u32(1)        // streams
+	bw.u32(jpegSize) // suggested buffer
+	bw.u32(imgW)
+	bw.u32(imgH)
+	bw.u32(0) // reserved ×4
+	bw.u32(0)
+	bw.u32(0)
+	bw.u32(0)
 
-	// === strh (Stream Header) - 56 bytes + 8 header ===
-	writeFourCC("strh")
-	writeUint32(56)
-	writeFourCC("vids") // fccType
-	writeFourCC("MJPG") // fccHandler - MJPEG codec
-	writeUint32(0)      // flags
-	writeUint16(0)      // priority
-	writeUint16(0)      // language
-	writeUint32(0)      // initial frames
-	writeUint32(1)      // scale
-	writeUint32(fps)    // rate
-	writeUint32(0)      // start
-	writeUint32(totalFrames)
-	writeUint32(jpegSize) // suggested buffer size
-	writeUint32(0)        // quality
-	writeUint32(0)        // sample size
-	writeUint16(0)        // left
-	writeUint16(0)        // top
-	writeUint16(uint16(width))
-	writeUint16(uint16(height))
+	// strl LIST (116 bytes)
+	bw.fourCC("LIST")
+	bw.u32(116)
+	bw.fourCC("strl")
 
-	// === strf (Stream Format - BITMAPINFOHEADER) - 40 bytes + 8 header ===
-	writeFourCC("strf")
-	writeUint32(40)
-	writeUint32(40)     // biSize
-	writeUint32(width)  // biWidth
-	writeUint32(height) // biHeight
-	writeUint16(1)      // biPlanes
-	writeUint16(24)     // biBitCount
-	writeFourCC("MJPG") // biCompression
-	writeUint32(width * height * 3)
-	writeUint32(0) // biXPelsPerMeter
-	writeUint32(0) // biYPelsPerMeter
-	writeUint32(0) // biClrUsed
-	writeUint32(0) // biClrImportant
+	// strh (56 bytes)
+	bw.fourCC("strh")
+	bw.u32(56)
+	bw.fourCC("vids")
+	bw.fourCC("MJPG")
+	bw.u32(0) // flags
+	bw.u16(0) // priority
+	bw.u16(0) // language
+	bw.u32(0) // initial frames
+	bw.u32(1) // scale
+	bw.u32(fps)
+	bw.u32(0) // start
+	bw.u32(frames)
+	bw.u32(jpegSize) // suggested buffer
+	bw.u32(0)        // quality
+	bw.u32(0)        // sample size
+	bw.u16(0)        // rect left
+	bw.u16(0)        // rect top
+	bw.u16(uint16(imgW))
+	bw.u16(uint16(imgH))
 
-	// === movi LIST ===
-	writeFourCC("LIST")
-	writeUint32(moviSize)
-	writeFourCC("movi")
+	// strf — BITMAPINFOHEADER (40 bytes)
+	bw.fourCC("strf")
+	bw.u32(40)
+	bw.u32(40)
+	bw.u32(imgW)
+	bw.u32(imgH)
+	bw.u16(1)  // planes
+	bw.u16(24) // bpp
+	bw.fourCC("MJPG")
+	bw.u32(imgW * imgH * 3)
+	bw.u32(0) // x pels/m
+	bw.u32(0) // y pels/m
+	bw.u32(0) // clr used
+	bw.u32(0) // clr important
 
-	// Write video frames
-	for i := uint32(0); i < totalFrames; i++ {
-		writeFourCC("00dc") // video chunk
-		writeUint32(jpegSize)
-		f.Write(jpegData)
-		// Pad to even boundary
+	// ── movi LIST ──
+	bw.fourCC("LIST")
+	bw.u32(moviSize)
+	bw.fourCC("movi")
+
+	padByte := []byte{0}
+	for range frames {
+		bw.fourCC("00dc")
+		bw.u32(jpegSize)
+		bw.bytes(jpegData)
 		if jpegSize%2 != 0 {
-			f.Write([]byte{0})
+			bw.bytes(padByte)
 		}
 	}
 
-	// === idx1 (Index) ===
-	writeFourCC("idx1")
-	writeUint32(totalFrames * 16)
+	// ── idx1 ──
+	bw.fourCC("idx1")
+	bw.u32(frames * 16)
 
-	moviOffset := uint32(4) // offset from movi start
-	for i := uint32(0); i < totalFrames; i++ {
-		writeFourCC("00dc")
-		writeUint32(0x10) // flags: AVIIF_KEYFRAME
-		writeUint32(moviOffset)
-		writeUint32(jpegSize)
-		moviOffset += frameChunkSize
+	offset := uint32(4) // from movi start
+	for range frames {
+		bw.fourCC("00dc")
+		bw.u32(0x10) // AVIIF_KEYFRAME
+		bw.u32(offset)
+		bw.u32(jpegSize)
+		offset += frameChunk
 	}
 
-	return f.Sync()
+	if bw.err != nil {
+		return fmt.Errorf("write AVI: %w", bw.err)
+	}
+	return nil
 }

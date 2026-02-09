@@ -1,0 +1,8 @@
+# Build artifacts
+*.exe
+*.wasm
+.release/
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GoStencil - Preset Editor</title>
+  <meta name="description" content="Visual preset editor for GoStencil programmable media generation">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <!-- Toolbar -->
+  <header id="toolbar">
+    <div class="toolbar-left">
+      <div class="logo">
+        <span class="logo-icon">&diams;</span>
+        <span class="logo-text">GoStencil</span>
+      </div>
+    </div>
+    <div class="toolbar-center">
+      <button id="btn-import" class="toolbar-btn" title="Import .gspresets">&uarr; Import</button>
+      <div class="toolbar-divider"></div>
+      <button id="btn-upload-font" class="toolbar-btn" title="Upload custom font (.ttf)">Aa Font</button>
+      <button id="btn-upload-image" class="toolbar-btn" title="Upload image (PNG/JPG)">+ Image</button>
+      <div class="toolbar-divider"></div>
+      <button id="btn-assets" class="toolbar-btn" title="Manage uploaded assets">Assets <span id="asset-count"
+          class="asset-count">0</span></button>
+      <button id="btn-help" class="toolbar-btn" title="JSON structure reference">? Help</button>
+    </div>
+    <div class="toolbar-right">
+      <div class="export-group">
+        <button id="btn-export" class="toolbar-btn toolbar-btn--primary">&darr; Export</button>
+        <div id="export-menu" class="dropdown-menu">
+          <button data-export="png" class="dropdown-item">Export PNG</button>
+          <button data-export="avi" class="dropdown-item">Export AVI Video</button>
+          <div class="dropdown-divider"></div>
+          <button data-export="preset-json" class="dropdown-item">Export preset.json</button>
+          <button data-export="data-json" class="dropdown-item">Export data.json</button>
+          <div class="dropdown-divider"></div>
+          <button data-export="gspresets" class="dropdown-item">Export .gspresets Bundle</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Layout -->
+  <main id="app">
+    <section id="panel-preset" class="panel">
+      <div class="panel-header">
+        <h2>preset.json</h2>
+        <span class="panel-badge">Template</span>
+      </div>
+      <div class="editor-wrap">
+        <textarea id="editor-preset" spellcheck="false"></textarea>
+      </div>
+    </section>
+
+    <div class="resize-handle" data-resize="left"></div>
+
+    <section id="panel-data" class="panel">
+      <div class="panel-header">
+        <h2>data.json</h2>
+        <span class="panel-badge">Overrides</span>
+      </div>
+      <div class="editor-wrap">
+        <textarea id="editor-data" spellcheck="false"></textarea>
+      </div>
+    </section>
+
+    <div class="resize-handle" data-resize="right"></div>
+
+    <section id="panel-preview" class="panel">
+      <div class="panel-header">
+        <h2>Preview</h2>
+        <div class="preview-controls">
+          <button id="btn-zoom-fit" class="icon-btn active" title="Fit to panel">Fit</button>
+          <button id="btn-zoom-100" class="icon-btn" title="100%">1:1</button>
+          <span id="zoom-label" class="zoom-label">Fit</span>
+        </div>
+      </div>
+      <div id="preview-container">
+        <div id="preview-checkerboard">
+          <img id="preview-img" alt="Preview" />
+          <div id="preview-loading" class="loading-overlay">
+            <div class="spinner"></div>
+          </div>
+          <div id="preview-error" class="error-overlay"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Asset Manager Sidebar -->
+  <div id="asset-panel" class="asset-panel">
+    <div class="asset-panel-header">
+      <h3>Assets</h3>
+      <button id="btn-close-assets" class="icon-btn">X</button>
+    </div>
+    <div id="asset-list" class="asset-list">
+      <div class="asset-empty">No assets uploaded yet</div>
+    </div>
+  </div>
+  <div id="asset-backdrop" class="asset-backdrop"></div>
+
+  <!-- AVI Export Modal -->
+  <div id="modal-avi" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <h3>Export AVI Video</h3>
+      <label>Duration (seconds)
+        <input type="number" id="avi-duration" value="3" min="1" max="60">
+      </label>
+      <div class="modal-actions">
+        <button id="avi-cancel" class="btn-secondary">Cancel</button>
+        <button id="avi-export" class="btn-primary">Export</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Help Modal -->
+  <div id="modal-help" class="modal-overlay" style="display:none">
+    <div class="modal modal--wide">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h3 style="margin:0">JSON Reference</h3>
+        <button id="help-close" class="icon-btn">X</button>
+      </div>
+      <div class="help-content">
+        <div class="help-section">
+          <h4>Component Position and Size</h4>
+          <pre><code>{
+  "id": "my_box",
+  "x": 0.1,        // 10% from left (0.0 - 1.0)
+  "y": 0.2,        // 20% from top
+  "width": 0.5,    // 50% of canvas width
+  "height": 0.3,   // 30% of canvas height
+  "zIndex": 1,     // render order (higher = on top)
+  "padding": 20    // inner padding in pixels
+}</code></pre>
+        </div>
+
+        <div class="help-section">
+          <h4>Component Style</h4>
+          <pre><code>"style": {
+  "backgroundColor": "#1e293bcc", // hex + alpha (cc = 80%)
+  "backgroundImage": "ASSET_ID",  // from uploaded image
+  "backgroundFit": "contain",     // "stretch" | "contain" | "cover"
+  "borderColor": "#3b82f6",
+  "borderWidth": 2,
+  "cornerRadius": 12,
+  "fontPath": "FONT_ASSET_ID",    // per-component font (optional)
+  "fontSize": 32,                 // in points
+  "color": "#ffffff",             // text color
+  "lineHeight": 1.5,             // multiplier
+  "textAlign": "center"          // "left" | "center" | "right"
+}</code></pre>
+        </div>
+
+        <div class="help-section">
+          <h4>Component Content (defaults / data.json)</h4>
+          <pre><code>"defaults": {
+  "visible": true,
+  "title": "Section Title",
+  "items": [
+    { "type": "text", "text": "Plain text line" },
+    { "type": "bullet", "text": "Bullet point" },
+    { "type": "numbered", "text": "Numbered item" }
+  ]
+}</code></pre>
+        </div>
+
+        <div class="help-section">
+          <h4>Fonts</h4>
+          <pre><code>// Global font (all components):
+"font": { "path": "FONT_ASSET_ID" }
+
+// Per-component font (overrides global):
+"style": { "fontPath": "FONT_ASSET_ID", ... }
+
+// If fontPath is missing or invalid, falls back to
+// global font, then embedded Go Regular</code></pre>
+        </div>
+
+        <div class="help-section">
+          <h4>Background Image Fit Modes</h4>
+          <pre><code>// "stretch" - fills entire component (may distort)
+// "contain" - fits inside, no distortion (letterboxed)
+// "cover"   - fills entire component, crops excess
+
+"style": {
+  "backgroundImage": "ASSET_ID",
+  "backgroundFit": "contain"
+}</code></pre>
+        </div>
+
+        <div class="help-section">
+          <h4>Z-Index (Layer Order)</h4>
+          <pre><code>// Lower zIndex renders first (behind)
+// Higher zIndex renders last (in front)
+{ "id": "bg_image", "zIndex": 0, ... }
+{ "id": "text_box", "zIndex": 10, ... }
+{ "id": "logo",     "zIndex": 20, ... }</code></pre>
+        </div>
+
+        <div class="help-section">
+          <h4>Canvas Presets</h4>
+          <pre><code>"canvas": { "preset": "1080p" }
+// Available: "720p" (1280x720), "1080p" (1920x1080),
+// "4k" (3840x2160), "instagram_square" (1080x1080),
+// "instagram_story" (1080x1920), "youtube_thumb" (1280x720)
+// Or use custom: { "width": 800, "height": 600 }</code></pre>
+        </div>
+
+        <div class="help-section">
+          <h4>data.json (Overrides)</h4>
+          <pre><code>// Override text, visibility, or style per component:
+{
+  "components": {
+    "title": {
+      "visible": false
+    },
+    "content": {
+      "title": "New Title",
+      "items": [{ "type": "text", "text": "Override text" }],
+      "style": { "color": "#ff0000" }
+    }
+  }
+}</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toasts"></div>
+
+  <!-- Hidden file inputs -->
+  <input type="file" id="file-import" accept=".gspresets,.zip" hidden>
+  <input type="file" id="file-font" accept=".ttf,.otf,.woff,.woff2" hidden>
+  <input type="file" id="file-image" accept=".png,.jpg,.jpeg,.webp" hidden>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
