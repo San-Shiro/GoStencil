@@ -251,7 +251,7 @@
 
     // Decompress raw deflate data using DecompressionStream API
     async function inflateRaw(compressedData) {
-        const ds = new DecompressionStream('raw');
+        const ds = new DecompressionStream('deflate-raw');
         const writer = ds.writable.getWriter();
         const reader = ds.readable.getReader();
         writer.write(compressedData);
