@@ -190,6 +190,7 @@
                 } else if (entry.name.startsWith('assets/')) {
                     // Import asset
                     const assetName = entry.name.split('/').pop();
+                    if (!assetName) continue;
                     const ext = assetName.split('.').pop().toLowerCase();
                     const mime = ext === 'ttf' ? 'font/ttf' : (ext === 'png' ? 'image/png' : (ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'application/octet-stream'));
                     const id = assetName.replace(/\.[^.]+$/, ''); // use filename without ext as ID
@@ -212,8 +213,8 @@
         }
     }
 
-    // Simple ZIP reader (supports uncompressed/stored entries only — gspresets are stored)
-    function readZip(data) {
+    // ZIP reader — supports Stored (method 0) and Deflate (method 8)
+    async function readZip(data) {
         const entries = [];
         const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
         let pos = 0;
@@ -229,13 +230,133 @@
             const extraLen = view.getUint16(pos + 28, true);
             const name = new TextDecoder().decode(data.subarray(pos + 30, pos + 30 + nameLen));
             const dataStart = pos + 30 + nameLen + extraLen;
+            const rawData = data.slice(dataStart, dataStart + compSize);
 
-            if (compMethod === 0) { // Stored
-                entries.push({ name, data: data.slice(dataStart, dataStart + uncompSize) });
+            if (compMethod === 0) {
+                // Stored — raw data
+                entries.push({ name, data: rawData });
+            } else if (compMethod === 8) {
+                // Deflate — decompress using browser API
+                try {
+                    const decompressed = await inflateRaw(rawData);
+                    entries.push({ name, data: new Uint8Array(decompressed) });
+                } catch (err) {
+                    console.warn('Failed to decompress:', name, err);
+                }
             }
             pos = dataStart + compSize;
         }
         return entries;
+    }
+
+    // Decompress raw deflate data using DecompressionStream API
+    async function inflateRaw(compressedData) {
+        const ds = new DecompressionStream('raw');
+        const writer = ds.writable.getWriter();
+        const reader = ds.readable.getReader();
+        writer.write(compressedData);
+        writer.close();
+        const chunks = [];
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+        }
+        const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+        const result = new Uint8Array(totalLen);
+        let offset = 0;
+        for (const c of chunks) {
+            result.set(c, offset);
+            offset += c.length;
+        }
+        return result.buffer;
+    }
+
+    // ZIP writer — creates a minimal ZIP with Stored entries (no compression)
+    function createZip(files) {
+        // files: [{ name: string, data: Uint8Array }]
+        const centralDir = [];
+        const parts = [];
+        let offset = 0;
+
+        for (const file of files) {
+            const nameBytes = new TextEncoder().encode(file.name);
+            const crc = crc32(file.data);
+
+            // Local file header (30 + nameLen)
+            const localHeader = new ArrayBuffer(30 + nameBytes.length);
+            const lv = new DataView(localHeader);
+            lv.setUint32(0, 0x04034b50, true);  // signature
+            lv.setUint16(4, 20, true);            // version needed
+            lv.setUint16(8, 0, true);             // compression: stored
+            lv.setUint32(14, crc, true);          // crc32
+            lv.setUint32(18, file.data.length, true); // compressed size
+            lv.setUint32(22, file.data.length, true); // uncompressed size
+            lv.setUint16(26, nameBytes.length, true);
+            new Uint8Array(localHeader, 30).set(nameBytes);
+
+            // Central directory entry
+            const cdEntry = new ArrayBuffer(46 + nameBytes.length);
+            const cv = new DataView(cdEntry);
+            cv.setUint32(0, 0x02014b50, true);   // signature
+            cv.setUint16(4, 20, true);             // version made by
+            cv.setUint16(6, 20, true);             // version needed
+            cv.setUint16(12, 0, true);             // compression: stored
+            cv.setUint32(16, crc, true);
+            cv.setUint32(20, file.data.length, true);
+            cv.setUint32(24, file.data.length, true);
+            cv.setUint16(28, nameBytes.length, true);
+            cv.setUint32(42, offset, true);        // local header offset
+            new Uint8Array(cdEntry, 46).set(nameBytes);
+            centralDir.push(new Uint8Array(cdEntry));
+
+            parts.push(new Uint8Array(localHeader));
+            parts.push(file.data);
+            offset += localHeader.byteLength + file.data.length;
+        }
+
+        // Central directory
+        const cdOffset = offset;
+        let cdSize = 0;
+        for (const cd of centralDir) {
+            parts.push(cd);
+            cdSize += cd.length;
+        }
+
+        // End of central directory
+        const eocd = new ArrayBuffer(22);
+        const ev = new DataView(eocd);
+        ev.setUint32(0, 0x06054b50, true);
+        ev.setUint16(8, files.length, true);  // entries on disk
+        ev.setUint16(10, files.length, true); // total entries
+        ev.setUint32(12, cdSize, true);
+        ev.setUint32(16, cdOffset, true);
+        parts.push(new Uint8Array(eocd));
+
+        // Combine
+        const totalLen = parts.reduce((s, p) => s + p.length, 0);
+        const result = new Uint8Array(totalLen);
+        let pos = 0;
+        for (const p of parts) {
+            result.set(p, pos);
+            pos += p.length;
+        }
+        return result;
+    }
+
+    // CRC-32 (used by ZIP format)
+    function crc32(data) {
+        if (!crc32.table) {
+            crc32.table = new Uint32Array(256);
+            for (let i = 0; i < 256; i++) {
+                let c = i;
+                for (let j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+                crc32.table[i] = c;
+            }
+        }
+        let crc = 0xFFFFFFFF;
+        for (let i = 0; i < data.length; i++) crc = crc32.table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
+        return (crc ^ 0xFFFFFFFF) >>> 0;
     }
 
     // Upload
@@ -319,7 +440,39 @@
                 downloadBlob(new Blob([JSON.stringify(parsed.data, null, 2)], { type: 'application/json' }), 'data.json');
                 toast('Exported: data.json', 'success');
                 break;
+            case 'gspresets':
+                exportGSPresets(parsed);
+                break;
         }
+    }
+
+    function exportGSPresets(parsed) {
+        try {
+            const files = [];
+            // Add preset.json
+            const presetData = new TextEncoder().encode(JSON.stringify(parsed.preset, null, 2));
+            files.push({ name: 'preset.json', data: presetData });
+            // Add all assets
+            for (const [id, asset] of Object.entries(jsAssets)) {
+                const ext = mimeToExt(asset.mime);
+                files.push({ name: 'assets/' + id + ext, data: asset.data });
+            }
+            const zipData = createZip(files);
+            downloadBlob(new Blob([zipData], { type: 'application/zip' }), 'preset.gspresets');
+            toast('Exported: preset.gspresets', 'success');
+        } catch (e) {
+            toast('Export failed: ' + e.message, 'error');
+        }
+    }
+
+    function mimeToExt(mime) {
+        if (!mime) return '';
+        if (mime.indexOf('png') >= 0) return '.png';
+        if (mime.indexOf('jpeg') >= 0 || mime.indexOf('jpg') >= 0) return '.jpg';
+        if (mime.indexOf('webp') >= 0) return '.webp';
+        if (mime.indexOf('ttf') >= 0 || mime.indexOf('font') >= 0) return '.ttf';
+        if (mime.indexOf('otf') >= 0) return '.otf';
+        return '';
     }
 
     function exportPNG(parsed) {

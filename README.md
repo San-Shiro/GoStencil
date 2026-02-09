@@ -4,6 +4,8 @@ Programmable media generation in pure Go. JSON-driven templates, native AVI enco
 
 **No CGo. No FFmpeg. No external dependencies.**
 
+**🌐 [Try it in your browser](https://san-shiro.github.io/GoStencil/)** — 100% client-side via WebAssembly, no installation needed.
+
 ---
 
 ## Quick Links
