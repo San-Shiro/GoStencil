@@ -213,30 +213,48 @@
         }
     }
 
-    // ZIP reader — supports Stored (method 0) and Deflate (method 8)
+    // ZIP reader — parses central directory (reliable, handles Go's data descriptors)
     async function readZip(data) {
         const entries = [];
         const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-        let pos = 0;
 
-        while (pos < data.length - 4) {
-            const sig = view.getUint32(pos, true);
-            if (sig !== 0x04034b50) break; // Local file header signature
+        // Find End of Central Directory record (search backwards)
+        let eocdPos = -1;
+        for (let i = data.length - 22; i >= 0; i--) {
+            if (view.getUint32(i, true) === 0x06054b50) {
+                eocdPos = i;
+                break;
+            }
+        }
+        if (eocdPos < 0) throw new Error('Not a valid ZIP file');
 
-            const compMethod = view.getUint16(pos + 8, true);
-            const compSize = view.getUint32(pos + 18, true);
-            const uncompSize = view.getUint32(pos + 22, true);
-            const nameLen = view.getUint16(pos + 26, true);
-            const extraLen = view.getUint16(pos + 28, true);
-            const name = new TextDecoder().decode(data.subarray(pos + 30, pos + 30 + nameLen));
-            const dataStart = pos + 30 + nameLen + extraLen;
+        const cdEntries = view.getUint16(eocdPos + 10, true);
+        const cdOffset = view.getUint32(eocdPos + 16, true);
+
+        // Parse central directory entries
+        let pos = cdOffset;
+        for (let i = 0; i < cdEntries; i++) {
+            if (view.getUint32(pos, true) !== 0x02014b50) break;
+
+            const method = view.getUint16(pos + 10, true);
+            const compSize = view.getUint32(pos + 20, true);
+            const nameLen = view.getUint16(pos + 28, true);
+            const extraLen = view.getUint16(pos + 30, true);
+            const commentLen = view.getUint16(pos + 32, true);
+            const localOffset = view.getUint32(pos + 42, true);
+            const name = new TextDecoder().decode(data.subarray(pos + 46, pos + 46 + nameLen));
+
+            // Read data from local file header position
+            const localNameLen = view.getUint16(localOffset + 26, true);
+            const localExtraLen = view.getUint16(localOffset + 28, true);
+            const dataStart = localOffset + 30 + localNameLen + localExtraLen;
             const rawData = data.slice(dataStart, dataStart + compSize);
 
-            if (compMethod === 0) {
-                // Stored — raw data
+            if (name.endsWith('/')) {
+                // Directory entry, skip
+            } else if (method === 0) {
                 entries.push({ name, data: rawData });
-            } else if (compMethod === 8) {
-                // Deflate — decompress using browser API
+            } else if (method === 8) {
                 try {
                     const decompressed = await inflateRaw(rawData);
                     entries.push({ name, data: new Uint8Array(decompressed) });
@@ -244,7 +262,8 @@
                     console.warn('Failed to decompress:', name, err);
                 }
             }
-            pos = dataStart + compSize;
+
+            pos += 46 + nameLen + extraLen + commentLen;
         }
         return entries;
     }
